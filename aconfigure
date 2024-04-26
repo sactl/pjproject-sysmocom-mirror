@@ -9164,7 +9164,11 @@ else $as_nop
 	        if test "x$with_ssl" != "xno" -a "x$with_ssl" != "x"; then
                     CFLAGS="$CFLAGS -I$with_ssl/include"
                     CPPFLAGS="$CPPFLAGS -I$with_ssl/include"
-                    LDFLAGS="$LDFLAGS -L$with_ssl/lib"
+                    if test -d $with_ssl/lib; then
+                        LDFLAGS="$LDFLAGS -L$with_ssl/lib"
+                    else
+                        LDFLAGS="$LDFLAGS -L$with_ssl"
+                    fi
                     { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: Using SSL prefix... $with_ssl" >&5
 printf "%s\n" "Using SSL prefix... $with_ssl" >&6; }
                 fi
