@@ -105,6 +105,7 @@ struct tcp_transport
     pj_sock_t                sock;
     pj_activesock_t         *asock;
     pj_bool_t                has_pending_connect;
+    pj_sock_t                new_sock;
 
     /* Keep-alive timer. */
     pj_timer_entry           ka_timer;
@@ -607,6 +608,13 @@ static void tcp_keep_alive_timer(pj_timer_heap_t *th, pj_timer_entry *e);
 /* Clean up TCP resources */
 static void tcp_on_destroy(void *arg);
 
+/* Change transport addresses */
+static pj_status_t tcp_create_new_sock(struct pjsip_transport *base,
+				       pj_sockaddr *local_addr);
+static pj_status_t tcp_connect_new_sock(struct pjsip_transport *base,
+					pj_sockaddr *local_addr,
+					pj_sockaddr *remote_addr);
+
 /*
  * Common function to create TCP transport, called when pending accept() and
  * pending connect() complete.
@@ -642,6 +650,7 @@ static pj_status_t tcp_create( struct tcp_listener *listener,
     tcp = PJ_POOL_ZALLOC_T(pool, struct tcp_transport);
     tcp->is_server = is_server;
     tcp->sock = sock;
+    tcp->new_sock = PJ_INVALID_SOCKET;
     /*tcp->listener = listener;*/
     pj_list_init(&tcp->delayed_list);
     tcp->base.pool = pool;
@@ -685,6 +694,9 @@ static pj_status_t tcp_create( struct tcp_listener *listener,
     tcp->base.destroy = &tcp_destroy_transport;
     tcp->base.factory = &listener->factory;
     tcp->base.initial_timeout = listener->initial_timeout;
+    tcp->base.create_new_sock = tcp_create_new_sock;
+    tcp->base.connect_new_sock = tcp_connect_new_sock;
+
 
     /* Create group lock */
     status = pj_grp_lock_create_w_handler(pool, NULL, tcp, &tcp_on_destroy,
@@ -859,6 +871,10 @@ static pj_status_t tcp_destroy(pjsip_transport *transport,
         tcp->sock = PJ_INVALID_SOCKET;
     }
 
+    if (tcp->new_sock != PJ_INVALID_SOCKET)
+	pj_sock_close(tcp->new_sock);
+
+
     if (tcp->grp_lock) {
         pj_grp_lock_t *grp_lock = tcp->grp_lock;
         tcp->grp_lock = NULL;
@@ -979,6 +995,7 @@ static pj_status_t lis_create_transport(pjsip_tpfactory *factory,
     struct tcp_transport *tcp;
     pj_sock_t sock;
     pj_sockaddr local_addr;
+    pj_sockaddr remote_addr;
     pj_status_t status;
 
     /* Sanity checks */
@@ -994,8 +1011,15 @@ static pj_status_t lis_create_transport(pjsip_tpfactory *factory,
 
     listener = (struct tcp_listener*)factory;
 
+    if (pj_sockaddr_has_addr(&listener->factory.c_remote_addr)) {
+        /* Use client remote address, if set by tcp_connect_new_sock(). */
+        pj_sockaddr_cp(&remote_addr, &listener->factory.c_remote_addr);
+    } else {
+        pj_sockaddr_cp(&remote_addr, rem_addr);
+    }
+
     /* Create socket */
-    status = pj_sock_socket(rem_addr->addr.sa_family,
+    status = pj_sock_socket(remote_addr.addr.sa_family,
                             pj_SOCK_STREAM() | pj_SOCK_CLOEXEC(),
                             0, &sock);
     if (status != PJ_SUCCESS)
@@ -1016,10 +1040,15 @@ static pj_status_t lis_create_transport(pjsip_tpfactory *factory,
         }
     }
 
-    /* Bind to listener's address and any port */
-    pj_bzero(&local_addr, sizeof(local_addr));
-    pj_sockaddr_cp(&local_addr, &listener->bound_addr);
-    pj_sockaddr_set_port(&local_addr, 0);
+    if (pj_sockaddr_has_addr(&listener->factory.c_local_addr)) {
+        /* Use client local address, if set by tcp_connect_new_sock(). */
+        pj_sockaddr_cp(&local_addr, &listener->factory.c_local_addr);
+    } else {
+        /* Bind to listener's address and any port */
+        pj_bzero(&local_addr, sizeof(local_addr));
+        pj_sockaddr_cp(&local_addr, &listener->bound_addr);
+        pj_sockaddr_set_port(&local_addr, 0);
+    }
 
     status = pj_sock_bind(sock, &local_addr,
                           pj_sockaddr_get_len(&local_addr));
@@ -1043,14 +1072,13 @@ static pj_status_t lis_create_transport(pjsip_tpfactory *factory,
 
     /* Create the transport descriptor */
     status = tcp_create(listener, NULL, sock, PJ_FALSE, &local_addr, 
-                        rem_addr, &tcp);
+                        &remote_addr, &tcp);
     if (status != PJ_SUCCESS)
         return status;
 
-
     /* Start asynchronous connect() operation */
     tcp->has_pending_connect = PJ_TRUE;
-    status = pj_activesock_start_connect(tcp->asock, tcp->base.pool, rem_addr,
+    status = pj_activesock_start_connect(tcp->asock, tcp->base.pool, &remote_addr,
                                          addr_len);
     if (status == PJ_SUCCESS) {
         on_connect_complete(tcp->asock, PJ_SUCCESS);
@@ -1764,6 +1792,153 @@ PJ_DEF(pj_status_t) pjsip_tcp_transport_restart(pjsip_tpfactory *factory,
     }    
 
     return status;
+}
+
+static pj_status_t tcp_create_new_sock(struct pjsip_transport *base,
+				       pj_sockaddr *local_addr)
+{
+    struct tcp_transport *tcp = (struct tcp_transport*) base;
+    struct tcp_listener *listener = (struct tcp_listener *)base->factory;
+    int af = pjsip_transport_type_get_af(listener->factory.type);
+    pj_sock_t new_sock;
+    pj_status_t status;
+    pj_sockaddr addr;
+
+    /* Close old socket */
+    if (tcp->new_sock != PJ_INVALID_SOCKET) {
+        pj_sock_close(tcp->new_sock);
+	tcp->new_sock = PJ_INVALID_SOCKET;
+    }
+
+    /* Create new socket */
+    status = pj_sock_socket(af,
+                            pj_SOCK_STREAM() | pj_SOCK_CLOEXEC(),
+                            0, &new_sock);
+    if (status != PJ_SUCCESS)
+        return status;
+
+    if (!local_addr) {
+	local_addr = &addr;
+	pj_bzero(&addr, sizeof(*local_addr));
+	pj_sockaddr_cp(&addr, &listener->bound_addr);
+	pj_sockaddr_set_port(&addr, 0);
+    }
+
+    /* Apply QoS, if specified */
+    status = pj_sock_apply_qos2(new_sock, listener->qos_type,
+                                &listener->qos_params,
+                                2, listener->factory.obj_name,
+                                "outgoing SIP TCP socket");
+
+    /* Apply socket options, if specified */
+    if (listener->sockopt_params.cnt) {
+        status = pj_sock_setsockopt_params(new_sock, &listener->sockopt_params);
+        if (status != PJ_SUCCESS) {
+            PJ_PERROR(4, (listener->factory.obj_name, status,
+                          "Warning: error applying socket options"));
+        }
+    }
+
+    if (1) {
+        int enabled = 1;
+        status = pj_sock_setsockopt(new_sock, pj_SOL_SOCKET(), pj_SO_REUSEADDR(),
+                                    &enabled, sizeof(enabled));
+        if (status != PJ_SUCCESS) {
+            PJ_PERROR(4, (listener->factory.obj_name, status,
+                          "Warning: error applying SO_REUSEADDR"));
+        }
+    }
+
+    /* Bind new socket */
+    status = pj_sock_bind(new_sock, local_addr,
+                          pj_sockaddr_get_len(local_addr));
+    if (status != PJ_SUCCESS) {
+        pj_sock_close(new_sock);
+        return status;
+    }
+
+    /* Store and return */
+    tcp->new_sock = new_sock;
+    return PJ_SUCCESS;
+}
+
+/* Change transport addresses */
+static pj_status_t tcp_connect_new_sock(struct pjsip_transport *base,
+					pj_sockaddr *local_addr,
+					pj_sockaddr *remote_addr)
+{
+    struct tcp_transport *tcp = (struct tcp_transport*) base;
+    struct tcp_listener *listener = (struct tcp_listener *)base->factory;
+    pj_activesock_t *asock = tcp->asock;
+    pj_activesock_t *new_asock;
+    pj_activesock_cfg asock_cfg;
+    pj_activesock_cb tcp_callback;
+    pj_status_t status;
+    int addr_len;
+
+    if (tcp->new_sock == PJ_INVALID_SOCKET) {
+        PJ_PERROR(4, (listener->factory.obj_name, PJ_EINVAL,
+                      "tcp->new_sock is already set, please fix!"));
+	return PJ_EINVAL;
+    }
+
+    /* Get the local addess */
+    addr_len = sizeof(*local_addr);
+    status = pj_sock_getsockname(tcp->new_sock, local_addr, &addr_len);
+    if (status != PJ_SUCCESS) {
+        PJ_PERROR(4, (listener->factory.obj_name, status,
+                      "Failed to get local address from socket"));
+        pj_activesock_close(new_asock);
+        return status;
+    }
+
+
+    /* Create active socket */
+    pj_activesock_cfg_default(&asock_cfg);
+    asock_cfg.async_cnt = 1;
+    asock_cfg.grp_lock = tcp->grp_lock;
+
+    pj_bzero(&tcp_callback, sizeof(tcp_callback));
+    tcp_callback.on_data_read = &on_data_read;
+    tcp_callback.on_data_sent = &on_data_sent;
+    tcp_callback.on_connect_complete = &on_connect_complete;
+
+    status = pj_activesock_create(tcp->base.pool, tcp->new_sock, pj_SOCK_STREAM(), &asock_cfg,
+                                  pj_activesock_get_ioqueue(asock), &tcp_callback, tcp, &new_asock);
+    if (status != PJ_SUCCESS) {
+        PJ_PERROR(4, (listener->factory.obj_name, status,
+                      "Failed to create active socket (status=%d)", status));
+        pj_sock_close(tcp->new_sock);
+	tcp->new_sock = PJ_INVALID_SOCKET;
+        return status;
+    }
+
+    /* Start asynchronous connect() operation */
+    status = pj_activesock_start_connect(new_asock, tcp->base.pool, remote_addr, pj_sockaddr_get_len(remote_addr));
+    if (status != PJ_SUCCESS && status != PJ_EPENDING) {
+        PJ_PERROR(4, (listener->factory.obj_name, status,
+                      "Failed to connect active socket (status=%d)", status));
+        pj_activesock_close(new_asock);
+        return status;
+    }
+
+    /* Close old socket and assign the new one. */
+    pj_activesock_close(tcp->asock);
+    tcp->sock = tcp->new_sock;
+    tcp->new_sock = PJ_INVALID_SOCKET;
+    tcp->asock = new_asock;
+
+    /* Store transport addresses in tp_factory. It is used when re-opening a failed TCP connection. */
+    pj_sockaddr_cp(&listener->factory.c_remote_addr, remote_addr);
+    pj_sockaddr_cp(&listener->factory.c_local_addr, local_addr);
+
+    /* Check if socket is already connected. */
+    tcp->has_pending_connect = PJ_TRUE;
+    if (status == PJ_SUCCESS) {
+        on_connect_complete(tcp->asock, PJ_SUCCESS);
+    }
+
+    return PJ_SUCCESS;
 }
 
 #endif  /* PJ_HAS_TCP */

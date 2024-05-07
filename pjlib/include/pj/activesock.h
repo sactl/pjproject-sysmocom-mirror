@@ -585,6 +585,7 @@ PJ_DECL(pj_status_t) pj_activesock_start_connect(pj_activesock_t *asock,
                                                  const pj_sockaddr_t *remaddr,
                                                  int addr_len);
 
+PJ_DEF(pj_ioqueue_t) *pj_activesock_get_ioqueue(pj_activesock_t *asock);
 
 #endif  /* PJ_HAS_TCP */
 

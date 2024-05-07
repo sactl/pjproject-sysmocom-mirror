@@ -980,5 +980,10 @@ static void ioqueue_on_connect_complete(pj_ioqueue_key_t *key,
         
     }
 }
+
+PJ_DEF(pj_ioqueue_t) *pj_activesock_get_ioqueue(pj_activesock_t *asock)
+{
+    return asock->ioqueue;
+}
 #endif  /* PJ_HAS_TCP */
 

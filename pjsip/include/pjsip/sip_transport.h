@@ -935,6 +935,12 @@ struct pjsip_transport
      */
     pj_status_t (*destroy)(pjsip_transport *transport);
 
+    pj_status_t (*create_new_sock)(struct pjsip_transport *base,
+				   pj_sockaddr *local_addr);
+    pj_status_t (*connect_new_sock)(struct pjsip_transport *base,
+				    pj_sockaddr *local_addr,
+				    pj_sockaddr *remote_addr);
+
     /*
      * Application may extend this structure..
      */
@@ -1082,6 +1088,8 @@ struct pjsip_tpfactory
     char                   *info;           /**< Transport info/description.*/
 
     pj_sockaddr             local_addr;     /**< Bound address.         */
+    pj_sockaddr             c_local_addr;   /**< Client local address setting*/
+    pj_sockaddr             c_remote_addr;  /**< Client remove address setting*/
     pjsip_host_port         addr_name;      /**< Published name.        */
 
     /**
