@@ -144,12 +144,14 @@ PJ_DEF(pj_ssize_t) pjsip_param_print_on( const pjsip_param *param_list,
 
 static const pj_str_t *pjsip_url_get_scheme( const pjsip_sip_uri* );
 static const pj_str_t *pjsips_url_get_scheme( const pjsip_sip_uri* );
+static const pj_str_t *pjtel_url_get_scheme( const pjsip_sip_uri* );
 static const pj_str_t *pjsip_name_addr_get_scheme( const pjsip_name_addr * );
 static void *pjsip_get_uri( pjsip_uri *uri );
 static void *pjsip_name_addr_get_uri( pjsip_name_addr *name );
 
 static pj_str_t sip_str = { "sip", 3 };
 static pj_str_t sips_str = { "sips", 4 };
+static pj_str_t tel_str = { "tel", 3 };
 
 static pjsip_name_addr* pjsip_name_addr_clone( pj_pool_t *pool, 
                                                const pjsip_name_addr *rhs);
@@ -195,6 +197,15 @@ static pjsip_uri_vptr sips_url_vptr =
     (P_CLONE)           &pjsip_url_clone
 };
 
+static pjsip_uri_vptr tel_url_vptr =
+{
+    (P_GET_SCHEME)      &pjtel_url_get_scheme,
+    (P_GET_URI)         &pjsip_get_uri,
+    (P_PRINT_URI)       &pjsip_url_print,
+    (P_CMP_URI)         &pjsip_url_compare,
+    (P_CLONE)           &pjsip_url_clone
+};
+
 static pjsip_uri_vptr name_addr_vptr = 
 {
     (P_GET_SCHEME)      &pjsip_name_addr_get_scheme,
@@ -216,6 +227,12 @@ static const pj_str_t *pjsips_url_get_scheme(const pjsip_sip_uri *url)
     return &sips_str;
 }
 
+static const pj_str_t *pjtel_url_get_scheme(const pjsip_sip_uri *url)
+{
+    PJ_UNUSED_ARG(url);
+    return &tel_str;
+}
+
 static void *pjsip_get_uri( pjsip_uri *uri )
 {
     return uri;
@@ -230,6 +247,11 @@ PJ_DEF(void) pjsip_sip_uri_set_secure( pjsip_sip_uri *url,
                                        pj_bool_t secure )
 {
     url->vptr = secure ? &sips_url_vptr : &sip_url_vptr;
+}
+
+PJ_DEF(void) pjsip_sip_uri_set_tel( pjsip_sip_uri *url )
+{
+    url->vptr = &tel_url_vptr;
 }
 
 PJ_DEF(void) pjsip_sip_uri_init(pjsip_sip_uri *url, pj_bool_t secure)
@@ -527,6 +549,8 @@ static pjsip_sip_uri* pjsip_url_clone(pj_pool_t *pool, const pjsip_sip_uri *rhs)
         return NULL;
 
     pjsip_sip_uri_init(url, IS_SIPS(rhs));
+    if (PJSIP_URI_SCHEME_IS_TEL(rhs))
+	    pjsip_sip_uri_set_tel(url);
     pjsip_sip_uri_assign(pool, url, rhs);
     return url;
 }

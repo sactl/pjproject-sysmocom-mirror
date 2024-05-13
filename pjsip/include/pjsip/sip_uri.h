@@ -389,6 +389,13 @@ PJ_DECL(void) pjsip_sip_uri_set_secure( pjsip_sip_uri *uri,
                                         pj_bool_t secure );
 
 /**
+ * Change the SIP URI scheme to tel.
+ * This would not change anything except the scheme.
+ * @param uri       The URI
+ */
+PJ_DECL(void) pjsip_sip_uri_set_tel( pjsip_sip_uri *uri );
+
+/**
  * Initialize SIP URL (all fields are set to NULL or zero).
  * @param url       The URL.
  * @param secure    Create sips URI?
