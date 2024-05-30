@@ -702,9 +702,9 @@ static pjsip_cached_auth *find_cached_auth( pjsip_auth_clt_sess *sess,
 }
 
 /* Find credential to use for the specified realm and auth scheme. */
-static const pjsip_cred_info* auth_find_cred( const pjsip_auth_clt_sess *sess,
-                                              const pj_str_t *realm,
-                                              const pj_str_t *auth_scheme)
+static pjsip_cred_info* auth_find_cred( const pjsip_auth_clt_sess *sess,
+                                        const pj_str_t *realm,
+                                        const pj_str_t *auth_scheme)
 {
     unsigned i;
     int wildcard = -1;
@@ -789,6 +789,8 @@ PJ_DEF(pj_status_t) pjsip_auth_clt_clone( pj_pool_t *pool,
                   &rhs->cred_info[i].username);
         sess->cred_info[i].data_type = rhs->cred_info[i].data_type;
         pj_strdup(pool, &sess->cred_info[i].data, &rhs->cred_info[i].data);
+        pj_strdup(pool, &sess->cred_info[i].cnonce, &rhs->cred_info[i].cnonce);
+        sess->cred_info[i].nc = rhs->cred_info[i].nc;
     }
 
     /* TODO note:
@@ -860,6 +862,8 @@ PJ_DEF(pj_status_t) pjsip_auth_clt_set_credentials( pjsip_auth_clt_sess *sess,
             pj_strdup(sess->pool, &sess->cred_info[i].realm, &c[i].realm);
             pj_strdup(sess->pool, &sess->cred_info[i].username, &c[i].username);
             pj_strdup(sess->pool, &sess->cred_info[i].data, &c[i].data);
+            pj_strdup(sess->pool, &sess->cred_info[i].cnonce, &c[i].cnonce);
+            sess->cred_info[i].nc = c[i].nc;
         }
         sess->cred_cnt = cred_cnt;
     }
@@ -905,7 +909,7 @@ PJ_DEF(pj_status_t) pjsip_auth_clt_get_prefs(pjsip_auth_clt_sess *sess,
 static pj_status_t auth_respond( pj_pool_t *req_pool,
                                  const pjsip_www_authenticate_hdr *hdr,
                                  const pjsip_uri *uri,
-                                 const pjsip_cred_info *cred_info,
+                                 pjsip_cred_info *cred_info,
                                  const pjsip_method *method,
                                  pj_pool_t *sess_pool,
                                  pjsip_cached_auth *cached_auth,
@@ -953,9 +957,14 @@ static pj_status_t auth_respond( pj_pool_t *req_pool,
         pj_str_t *cnonce = NULL;
         pj_uint32_t nc = 1;
 
+        /* Cnonce and nc may be given by application. */
+        if (cred_info->cnonce.slen) {
+                cnonce = &cred_info->cnonce;
+                nc = cred_info->nc;
+        }
         /* Update the session (nonce-count etc) if required. */
 #       if PJSIP_AUTH_QOP_SUPPORT
-        {
+        else {
             if (cached_auth) {
                 update_digest_session( cached_auth, hdr );
 
@@ -1272,7 +1281,7 @@ static pj_status_t process_auth( pj_pool_t *req_pool,
                                  pjsip_cached_auth *cached_auth,
                                  pjsip_authorization_hdr **h_auth)
 {
-    const pjsip_cred_info *cred;
+    pjsip_cred_info *cred;
     pjsip_authorization_hdr *sent_auth = NULL;
     pjsip_hdr *hdr;
     pj_status_t status;

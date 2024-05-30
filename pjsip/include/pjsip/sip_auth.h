@@ -118,6 +118,8 @@ struct pjsip_cred_info
     int         data_type;      /**< Type of data (0 for plaintext passwd). */
     pj_str_t    data;           /**< The data, which can be a plaintext 
                                      password or a hashed digest.           */
+    pj_str_t    cnonce;         /**< Optional pre-defined cnonce value      */
+    pj_uint32_t nc;             /**< nc to be used with optional cnonce.    */
 
     /** Extended data */
     union {
