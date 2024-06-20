@@ -810,6 +810,7 @@ PJ_DEF(pj_status_t) pjsip_100rel_tx_response(pjsip_inv_session *inv,
         char rseq_str[32];
         pj_str_t rseq;
         tx_data_list_t *tl;
+        pj_bool_t req_created = PJ_FALSE;
 
         /* Create UAS state if we don't have one */
         if (dd->uas_state == NULL) {
@@ -827,10 +828,16 @@ PJ_DEF(pj_status_t) pjsip_100rel_tx_response(pjsip_inv_session *inv,
                          PJ_EINVALIDOP);
         
         /* Add Require header */
-        req_hdr = pjsip_require_hdr_create(tdata->pool);
-        req_hdr->count = 1;
-        req_hdr->values[0] = tag_100rel;
-        pjsip_msg_add_hdr(tdata->msg, (pjsip_hdr*)req_hdr);
+        req_hdr = (pjsip_require_hdr*)
+                  pjsip_msg_find_hdr(tdata->msg, PJSIP_H_REQUIRE, NULL);
+        if (!req_hdr) {
+            req_hdr = pjsip_require_hdr_create(tdata->pool);
+            PJ_ASSERT_RETURN(req_hdr, PJ_FALSE);
+            req_created = PJ_TRUE;
+        }
+        req_hdr->values[req_hdr->count++] = tag_100rel;
+        if (req_created)
+            pjsip_msg_add_hdr(tdata->msg, (pjsip_hdr*)req_hdr);
         
         /* Add RSeq header */
         pj_ansi_snprintf(rseq_str, sizeof(rseq_str), "%u",
