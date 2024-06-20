@@ -63,6 +63,12 @@ typedef struct pjsip_tcp_transport_cfg
     pj_sockaddr         bind_addr;
 
     /**
+     * Optional interface to bind the socket to. Default is to bind to
+     * any interface.
+     */
+    const char         *bind_if;
+
+    /**
      * Should SO_REUSEADDR be used for the listener socket.
      * Default value is PJSIP_TCP_TRANSPORT_REUSEADDR.
      */

@@ -57,6 +57,7 @@ struct tcp_listener
     pjsip_tpmgr             *tpmgr;
     pj_activesock_t         *asock;
     pj_sockaddr              bound_addr;
+    const char              *bind_if;
     pj_qos_type              qos_type;
     pj_qos_params            qos_params;
     pj_sockopt_params        sockopt_params;
@@ -404,6 +405,7 @@ PJ_DEF(pj_status_t) pjsip_tcp_transport_start3(
               sizeof(cfg->qos_params));
     pj_memcpy(&listener->sockopt_params, &cfg->sockopt_params,
               sizeof(cfg->sockopt_params));
+    listener->bind_if = cfg->bind_if;
 
     pj_ansi_strxcpy(listener->factory.obj_name, "tcptp", 
                     sizeof(listener->factory.obj_name));
@@ -1048,6 +1050,18 @@ static pj_status_t lis_create_transport(pjsip_tpfactory *factory,
         pj_bzero(&local_addr, sizeof(local_addr));
         pj_sockaddr_cp(&local_addr, &listener->bound_addr);
         pj_sockaddr_set_port(&local_addr, 0);
+    }
+
+    /* Bind to listener's interface, if set. */
+    if (listener->bind_if && listener->bind_if[0]) {
+        struct ifreq ifr;
+        memset(&ifr, 0, sizeof(ifr));
+        snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), listener->bind_if);
+        status = setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, (void *)&ifr, sizeof(ifr));
+        if (status < 0) {
+            PJ_PERROR(4, (listener->factory.obj_name, status,
+                          "Warning: cannot bind to interface %s", listener->bind_if));
+        }
     }
 
     status = pj_sock_bind(sock, &local_addr,
@@ -1846,6 +1860,18 @@ static pj_status_t tcp_create_new_sock(struct pjsip_transport *base,
         if (status != PJ_SUCCESS) {
             PJ_PERROR(4, (listener->factory.obj_name, status,
                           "Warning: error applying SO_REUSEADDR"));
+        }
+    }
+
+    /* Bind to listener's interface, if set. */
+    if (listener->bind_if && listener->bind_if[0]) {
+        struct ifreq ifr;
+        memset(&ifr, 0, sizeof(ifr));
+        snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), listener->bind_if);
+        status = setsockopt(new_sock, SOL_SOCKET, SO_BINDTODEVICE, (void *)&ifr, sizeof(ifr));
+        if (status < 0) {
+            PJ_PERROR(4, (listener->factory.obj_name, status,
+                          "Cannot bind to interface %s", listener->bind_if));
         }
     }
 
