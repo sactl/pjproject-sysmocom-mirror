@@ -1321,6 +1321,21 @@ static void regc_tsx_callback(void *token, pjsip_event *event)
 
         status = pjsip_regc_register(regc, regc->auto_reg, &tdata);
         if (status == PJ_SUCCESS) {
+            const pjsip_hdr *sh;
+            pjsip_hdr *dh;
+
+            /* Clone all headers that have been added by application previously. */
+            sh = tsx->last_tx->msg->hdr.next;
+            while(sh != &tsx->last_tx->msg->hdr) {
+                if (!pjsip_msg_find_hdr_by_name(tdata->msg, &sh->name, NULL)) {
+                    dh = (pjsip_hdr*) pjsip_hdr_clone(tdata->pool, sh);
+                    pj_strdup(tdata->pool, &dh->name, &sh->name);
+                    pj_strdup(tdata->pool, &dh->sname, &sh->sname);
+                    pjsip_msg_add_hdr(tdata->msg, dh);
+                }
+                sh = sh->next;
+            }
+
             /* Need to unlock the regc temporarily while sending the message
              * to prevent deadlock (see ticket #2260 and #1247).
              * It should be safe to do this since the regc's refcount has been
