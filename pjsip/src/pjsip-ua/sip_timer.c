@@ -1097,8 +1097,9 @@ PJ_DEF(pj_status_t) pjsip_timer_process_req(pjsip_inv_session *inv,
      * to use Session Timers.
      */
     if (se_hdr) {
-        /* Update SE as specified by peer. */
-        inv->timer->setting.sess_expires = se_hdr->sess_expires;
+        /* Update SE as specified by peer, only if peer requests a lower SE. */
+	if (se_hdr->sess_expires < inv->timer->setting.sess_expires)
+            inv->timer->setting.sess_expires = se_hdr->sess_expires;
     } else if (inv->timer->setting.sess_expires < min_se) {
         /* There is no SE in the request (remote support Session Timers but
          * doesn't want to use it, it just specify Min-SE) and local SE is 
