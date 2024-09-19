@@ -48,13 +48,15 @@ static pj_status_t compare_attr_imp(unsigned count1,
                                     pjmedia_sdp_attr *const attr2[])
 {
     pj_status_t status;
-    unsigned i;
+    unsigned i, j;
     const pj_str_t inactive = { "inactive", 8 };
     const pj_str_t sendrecv = { "sendrecv", 8 };
     const pj_str_t sendonly = { "sendonly", 8 };
     const pj_str_t recvonly = { "recvonly", 8 };
     const pj_str_t fmtp = { "fmtp", 4 };
     const pj_str_t rtpmap = { "rtpmap", 6 };
+    const pj_str_t curr = { "curr", 4 };
+    const pj_str_t des = { "des", 3 };
 
     /* For simplicity, we only compare the following attributes, and ignore
      * the others:
@@ -127,6 +129,21 @@ static pj_status_t compare_attr_imp(unsigned count1,
             if (r1.clock_rate != r2.clock_rate)
                 return PJMEDIA_SDP_ERTPMAPNOTEQUAL;
             if (pj_strcmp(&r1.param, &r2.param) != 0)
+                return PJMEDIA_SDP_ERTPMAPNOTEQUAL;
+	} else if (pj_strcmp(&a1->name, &curr) == 0 ||
+            pj_strcmp(&a1->name, &des) == 0) {
+            /* For qos attribute, find an exact match on the other SDP
+             * if there is no match, SDP is different.
+	     * Note: This will not detect a removed attribute.
+             */
+            for (j=0; j<count2; ++j) {
+                const pjmedia_sdp_attr *a2 = attr2[j];
+		if (pj_strcmp(&a2->name, &a1->name))
+			continue;
+		if (pj_strcmp(&a2->value, &a1->value) == 0)
+		    break;
+	    }
+	    if (j == count2)
                 return PJMEDIA_SDP_ERTPMAPNOTEQUAL;
         }
     }
