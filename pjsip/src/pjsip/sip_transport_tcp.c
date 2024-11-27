@@ -1914,7 +1914,6 @@ static pj_status_t tcp_connect_new_sock(struct pjsip_transport *base,
     if (status != PJ_SUCCESS) {
         PJ_PERROR(4, (listener->factory.obj_name, status,
                       "Failed to get local address from socket"));
-        pj_activesock_close(new_asock);
         return status;
     }
 
@@ -1935,33 +1934,33 @@ static pj_status_t tcp_connect_new_sock(struct pjsip_transport *base,
         PJ_PERROR(4, (listener->factory.obj_name, status,
                       "Failed to create active socket (status=%d)", status));
         pj_sock_close(tcp->new_sock);
-	tcp->new_sock = PJ_INVALID_SOCKET;
+        tcp->new_sock = PJ_INVALID_SOCKET;
         return status;
     }
 
-    /* Start asynchronous connect() operation */
-    status = pj_activesock_start_connect(new_asock, tcp->base.pool, remote_addr, pj_sockaddr_get_len(remote_addr));
-    if (status != PJ_SUCCESS && status != PJ_EPENDING) {
-        PJ_PERROR(4, (listener->factory.obj_name, status,
-                      "Failed to connect active socket (status=%d)", status));
-        pj_activesock_close(new_asock);
-        return status;
-    }
-
-    /* Close old socket and assign the new one. */
+    /* Close old socket and assign the new one.
+     * A different thread might catch a connect during pj_activesock_start_connect() call,
+     * so asock must already be attached to tcp. */
     pj_activesock_close(tcp->asock);
     tcp->sock = tcp->new_sock;
     tcp->new_sock = PJ_INVALID_SOCKET;
     tcp->asock = new_asock;
+    tcp->has_pending_connect = PJ_TRUE;
 
     /* Store transport addresses in tp_factory. It is used when re-opening a failed TCP connection. */
     pj_sockaddr_cp(&listener->factory.c_remote_addr, remote_addr);
     pj_sockaddr_cp(&listener->factory.c_local_addr, local_addr);
 
-    /* Check if socket is already connected. */
-    tcp->has_pending_connect = PJ_TRUE;
-    if (status == PJ_SUCCESS) {
-        on_connect_complete(tcp->asock, PJ_SUCCESS);
+    /* Start asynchronous connect() operation. */
+    status = pj_activesock_start_connect(new_asock, tcp->base.pool, remote_addr, pj_sockaddr_get_len(remote_addr));
+    if (status != PJ_SUCCESS && status != PJ_EPENDING) {
+        PJ_PERROR(4, (listener->factory.obj_name, status,
+                      "Failed to connect active socket (status=%d)", status));
+        /* Close asock. This closes tcp->sock too. */
+        pj_activesock_close(new_asock);
+        tcp->asock = NULL;
+        tcp->sock = PJ_INVALID_SOCKET;
+        return status;
     }
 
     return PJ_SUCCESS;
