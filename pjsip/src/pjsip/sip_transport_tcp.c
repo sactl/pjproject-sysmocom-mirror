@@ -1901,6 +1901,8 @@ static pj_status_t tcp_connect_new_sock(struct pjsip_transport *base,
     pj_activesock_cb tcp_callback;
     pj_status_t status;
     int addr_len;
+    char local_addr_buf[PJ_INET6_ADDRSTRLEN+10];
+    char remote_addr_buf[PJ_INET6_ADDRSTRLEN+10];
 
     if (tcp->new_sock == PJ_INVALID_SOCKET) {
         PJ_PERROR(4, (listener->factory.obj_name, PJ_EINVAL,
@@ -1950,6 +1952,19 @@ static pj_status_t tcp_connect_new_sock(struct pjsip_transport *base,
     /* Store transport addresses in tp_factory. It is used when re-opening a failed TCP connection. */
     pj_sockaddr_cp(&listener->factory.c_remote_addr, remote_addr);
     pj_sockaddr_cp(&listener->factory.c_local_addr, local_addr);
+
+    /* Set tcp->base addresses for correct logging. */
+    pj_sockaddr_cp(&tcp->base.local_addr, local_addr);
+    sockaddr_to_host_port(tcp->base.pool, &tcp->base.local_name, local_addr);
+    sockaddr_to_host_port(tcp->base.pool, &tcp->base.remote_name, remote_addr);
+    PJ_LOG(4,(tcp->base.obj_name,
+              "TCP transport %s is connecting to %s...",
+              pj_addr_str_print(&tcp->base.local_name.host,
+                                tcp->base.local_name.port,
+                                local_addr_buf, sizeof(local_addr_buf), 1),
+              pj_addr_str_print(&tcp->base.remote_name.host,
+                                tcp->base.remote_name.port,
+                                remote_addr_buf, sizeof(remote_addr_buf), 1)));
 
     /* Start asynchronous connect() operation. */
     status = pj_activesock_start_connect(new_asock, tcp->base.pool, remote_addr, pj_sockaddr_get_len(remote_addr));
