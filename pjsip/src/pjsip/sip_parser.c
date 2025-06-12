@@ -1227,6 +1227,9 @@ static void parse_param_imp( pj_scanner *scanner, pj_pool_t *pool,
     /* pvalue, if any */
     if (*scanner->curptr == '=') {
         pj_scan_get_char(scanner);
+	/* skip white spaces in front of value */
+	while (*scanner->curptr == ' ')
+            pj_scan_get_char(scanner);
         if (!pj_scan_is_eof(scanner)) {
             /* pvalue can be a quoted string. */
             if (*scanner->curptr == '"') {
