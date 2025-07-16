@@ -1931,7 +1931,7 @@ static pj_status_t tcp_connect_new_sock(struct pjsip_transport *base,
     tcp_callback.on_connect_complete = &on_connect_complete;
 
     status = pj_activesock_create(tcp->base.pool, tcp->new_sock, pj_SOCK_STREAM(), &asock_cfg,
-                                  pj_activesock_get_ioqueue(asock), &tcp_callback, tcp, &new_asock);
+                                  pjsip_endpt_get_ioqueue(listener->endpt), &tcp_callback, tcp, &new_asock);
     if (status != PJ_SUCCESS) {
         PJ_PERROR(4, (listener->factory.obj_name, status,
                       "Failed to create active socket (status=%d)", status));
@@ -1940,10 +1940,11 @@ static pj_status_t tcp_connect_new_sock(struct pjsip_transport *base,
         return status;
     }
 
-    /* Close old socket and assign the new one.
+    /* Close old socket, if not already and assign the new one.
      * A different thread might catch a connect during pj_activesock_start_connect() call,
      * so asock must already be attached to tcp. */
-    pj_activesock_close(tcp->asock);
+    if (asock)
+	    pj_activesock_close(asock);
     tcp->sock = tcp->new_sock;
     tcp->new_sock = PJ_INVALID_SOCKET;
     tcp->asock = new_asock;
