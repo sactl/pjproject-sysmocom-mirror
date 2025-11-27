@@ -1979,6 +1979,22 @@ static pj_status_t tcp_connect_new_sock(struct pjsip_transport *base,
         return status;
     }
 
+    /* Update hash mgr's hash table to new remote IP. */
+    if (remote_addr->addr.sa_family == pj_AF_INET6())
+	    addr_len = sizeof(pj_sockaddr_in6);
+    else
+	    addr_len = sizeof(pj_sockaddr_in);
+    status = pjsip_transport_remote(listener->tpmgr, base, remote_addr);
+    if (status != PJ_SUCCESS) {
+        PJ_PERROR(4, (listener->factory.obj_name, status,
+                      "Failed to change remote address in transport manager's hash table(status=%d)", status));
+        /* Close asock. This closes tcp->sock too. */
+        pj_activesock_close(new_asock);
+        tcp->asock = NULL;
+        tcp->sock = PJ_INVALID_SOCKET;
+        return status;
+    }
+
     return PJ_SUCCESS;
 }
 

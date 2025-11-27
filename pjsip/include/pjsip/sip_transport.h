@@ -962,6 +962,19 @@ PJ_DECL(pj_status_t) pjsip_transport_register( pjsip_tpmgr *mgr,
 
 
 /**
+ * Update remote address of of transport in transport manager.
+ *
+ * @param mgr           The transport manager.
+ * @param tp            The transport that has been updated.
+ * @param remote        New remote address
+ *
+ * @return              PJ_SUCCESS on success.
+ */
+PJ_DEF(pj_status_t) pjsip_transport_remote( pjsip_tpmgr *mgr,
+                                            pjsip_transport *tp,
+                                            pj_sockaddr *remote );
+
+/**
  * Start graceful shutdown procedure for this transport. After graceful
  * shutdown has been initiated, no new reference can be obtained for
  * the transport. However, existing objects that currently uses the

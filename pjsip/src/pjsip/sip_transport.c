@@ -67,6 +67,13 @@ static const char* print_tpsel_info(const pjsip_tpselector *sel)
                          !sel->disable_connection_reuse);
     return tpsel_info_buf;
 }
+char *hexdump(void *data, int len)
+{
+	static char text[2560];
+	for(int i = 0; i < len; i++)
+		sprintf(text + 3*i, "%02x ", ((unsigned char *)data)[i]);
+	return text;
+}
 #else
 #   define TRACE_(x)
 #endif
@@ -1323,6 +1330,54 @@ PJ_DEF(pj_status_t) pjsip_transport_register( pjsip_tpmgr *mgr,
 
     return PJ_SUCCESS;
 }
+
+/**
+ * Update remote address of of transport in transport manager.
+ */
+PJ_DEF(pj_status_t) pjsip_transport_remote( pjsip_tpmgr *mgr,
+                                            pjsip_transport *tp,
+					    pj_sockaddr *remote)
+{
+    int key_len;
+    pj_uint32_t hval;
+    void *entry;
+
+    TRACE_((THIS_FILE, "Hash table count before updating remote: %d",
+            pj_hash_count(mgr->table)));
+
+    key_len = sizeof(tp->key.type) + tp->addr_len;
+    hval = 0;
+    TRACE_((THIS_FILE, "old key: %s len=%d",
+            hexdump(&tp->key, key_len), key_len));
+    entry = pj_hash_get(mgr->table, &tp->key, key_len, &hval);
+    if (!entry) {
+        PJ_LOG(2,(THIS_FILE, "Failed to find hash entry for transport %s",
+                  tp->obj_name));
+        return PJ_EINVAL;
+    }
+
+    hval = 0;
+    pj_hash_set(NULL, mgr->table, &tp->key, key_len, hval, NULL);
+
+    pj_memcpy(&tp->key.rem_addr, remote, tp->addr_len);
+    TRACE_((THIS_FILE, "new key: %s len=%d",
+            hexdump(&tp->key, key_len), key_len));
+    TRACE_((THIS_FILE, "Transport %s gets new remote address: type=%s, remote=%s:%d",
+            tp->obj_name,
+            pjsip_transport_get_type_name(tp->key.type),
+            pj_sockaddr_has_addr(&tp->key.rem_addr)?
+                                addr_string(&tp->key.rem_addr):"",
+            pj_sockaddr_has_addr(&tp->key.rem_addr)?
+                                pj_sockaddr_get_port(&tp->key.rem_addr):0));
+    hval = 0;
+    pj_hash_set(mgr->pool, mgr->table, &tp->key, key_len, hval, entry);
+
+    TRACE_((THIS_FILE, "Hash table count after updating remote: %d",
+            pj_hash_count(mgr->table)));
+
+    return PJ_SUCCESS;
+}
+
 
 /* Force destroy transport (e.g. during transport manager shutdown. */
 static pj_status_t destroy_transport( pjsip_tpmgr *mgr,
